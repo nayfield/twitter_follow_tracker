@@ -37,20 +37,6 @@ def create_headers(bearer_token):
     headers = {"Authorization": "Bearer {}".format(bearer_token)}
     return headers
 
-
-def connect_to_endpoint(url, headers, params):
-    response = requests.request("GET", url, headers=headers, params=params)
-    print(response.status_code)
-    # TODO if code is 429 you can get header x-rate-limit-reset timestamp.
-    #
-    if response.status_code != 200:
-        raise Exception(
-            "Request returned an error: {} {}".format(
-                response.status_code, response.text
-            )
-        )
-    return response.json()
-
 def connect_paginated(url, headers, params):
     retval = []
     more = 'firstrun'
@@ -67,7 +53,6 @@ def connect_paginated(url, headers, params):
             )
 
         got = response.json()
-        got = connect_to_endpoint(url, headers, params)
         retval.extend(got['data'])
         if 'next_token' in got['meta']:
             more = got['meta']['next_token']
@@ -75,14 +60,14 @@ def connect_paginated(url, headers, params):
             more = False
     return retval
 
-def response_to_dict(json_response):
+def response_to_dict(json_data):
     '''
     Convert the json list into a dict keyed by uid
     :param json_response: list of json response data items
     :return: dict keyed by id
     '''
     retval = {}
-    for u in json_response:
+    for u in json_data:
         retval[u['id']] = u
 
     return retval
@@ -90,7 +75,7 @@ def response_to_dict(json_response):
 
 def logcompare(mys, varn, oldd, newd):
     '''
-    Compare previous and current user lists
+    Compare previous and current user dicts
     :param mys: storage location format spec
     :param varn: which variant (followers/following)
     :param oldd: old dict
@@ -136,8 +121,8 @@ def main():
     # This does not override existing env vars
     load_dotenv()
 
-    # TB_STORAGE lets you move the pickle storage format
-    saveat = os.environ.get("TB_STORAGE", ".tb.{}.{}")
+    # TB_STORAGE lets you move the storage format
+    saveat = os.environ.get("TB_STORAGE", "tb.{}.{}")
 
     # env BEARER_TOKEN must be set.
     # TODO ensure that os.environ.get tracebacks if unset
@@ -155,9 +140,8 @@ def main():
     for ltype in ('following', 'followers'):
 
         url = create_url(uid, ltype)
-        json_response = connect_paginated(url, headers, params)
-        new_ud = response_to_dict(json_response)
-    #    print(json.dumps(json_response, indent=4, sort_keys=True))
+        json_data = connect_paginated(url, headers, params)
+        new_ud = response_to_dict(json_data)
 
         old_ud = loadstate(saveat, ltype)
 
@@ -168,6 +152,8 @@ def main():
         print('foo')
 
         savestate(saveat, ltype, new_ud)
+
+    print('bar')
 
 if __name__ == "__main__":
     main()
