@@ -147,6 +147,8 @@ def main():
 
     #   Do stuff
         changelog = logcompare(saveat, ltype, old_ud, new_ud)
+        for line in changelog:
+            print(line)
 
 
         savestate(saveat, ltype, new_ud)
