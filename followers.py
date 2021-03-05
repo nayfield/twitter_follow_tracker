@@ -149,11 +149,9 @@ def main():
         changelog = logcompare(saveat, ltype, old_ud, new_ud)
 
 
-        print('foo')
-
         savestate(saveat, ltype, new_ud)
 
-    print('bar')
+    pass
 
 if __name__ == "__main__":
     main()
