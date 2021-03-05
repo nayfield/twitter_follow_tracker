@@ -1,28 +1,37 @@
 import requests
 import os
 import json
+import pickle
+from datetime import datetime
+
 
 # To set your environment variables in your terminal run the following line:
 # export 'BEARER_TOKEN'='<your_bearer_token>'
 
 from dotenv import load_dotenv
-# The file '.env' contains two variables we care about:
-# BEARER_TOKEN=AAjkldjfdlksjfdskljklfds
-# TWITTER_UID=12345
+
+def savestate(mys, varn, scrl):
+    #TODO write out to a tmp file then move into place
+    # in order to transact atomically
+    with open(mys.format(varn, 'pickle'), 'wb') as output:
+        pickle.dump(scrl, output, 4)
+
+def loadstate(mys, varn):
+    retval={}
+    if os.path.isfile(mys.format(varn, 'pickle')):
+        with open(mys.format(varn, 'pickle'), 'rb') as readin:
+            retval=pickle.load(readin)
+    return retval
 
 
-def auth():
-    return os.environ.get("BEARER_TOKEN")
-
-
-def create_url():
-    user_id = os.environ.get("TWITTER_UID")
-    return "https://api.twitter.com/2/users/{}/followers".format(user_id)
-
+def create_url(user_id, ctype):
+    ''' user_id = twitter (numeric) user ID
+        ctype = 'followers' or 'following'
+        '''
+    return "https://api.twitter.com/2/users/{}/{}".format(user_id, ctype)
 
 def get_params():
-    return {"user.fields": "public_metrics,created_at"}
-
+    return {"user.fields": "public_metrics,created_at", "max_results": 1000}
 
 def create_headers(bearer_token):
     headers = {"Authorization": "Bearer {}".format(bearer_token)}
@@ -32,6 +41,8 @@ def create_headers(bearer_token):
 def connect_to_endpoint(url, headers, params):
     response = requests.request("GET", url, headers=headers, params=params)
     print(response.status_code)
+    # TODO if code is 429 you can get header x-rate-limit-reset timestamp.
+    #
     if response.status_code != 200:
         raise Exception(
             "Request returned an error: {} {}".format(
@@ -46,24 +57,117 @@ def connect_paginated(url, headers, params):
     while more:
         if more != 'firstrun':
             params['pagination_token'] = more
+        response = requests.request("GET", url, headers=headers, params=params)
+        if response.status_code != 200:
+            # TODO staus code 429 need to look at x-rate-limit-reset header for waiting
+            raise Exception(
+                "Request returned an error: {} {}".format(
+                    response.status_code, response.text
+                )
+            )
+
+        got = response.json()
         got = connect_to_endpoint(url, headers, params)
         retval.extend(got['data'])
         if 'next_token' in got['meta']:
-            print('more', got['meta']['next_token'])
             more = got['meta']['next_token']
         else:
             more = False
     return retval
 
-def main():
-    load_dotenv()
-    bearer_token = auth()
-    url = create_url()
-    headers = create_headers(bearer_token)
-    params = get_params()
-    json_response = connect_paginated(url, headers, params)
-    print(json.dumps(json_response, indent=4, sort_keys=True))
+def response_to_dict(json_response):
+    '''
+    Convert the json list into a dict keyed by uid
+    :param json_response: list of json response data items
+    :return: dict keyed by id
+    '''
+    retval = {}
+    for u in json_response:
+        retval[u['id']] = u
 
+    return retval
+
+
+def logcompare(mys, varn, oldd, newd):
+    '''
+    Compare previous and current user lists
+    :param mys: storage location format spec
+    :param varn: which variant (followers/following)
+    :param oldd: old dict
+    :param newd: new dict
+    :return: list of changes
+    '''
+    retval = []
+
+    if varn == 'followers':
+        fgone = 'Unfollowed by @{} [ID:{} Name:{}]'
+        fnew  = 'Newly followed by @{} [ID:{} Name:{}]'
+    else:
+        fgone = 'Stopped Following @{} [ID:{} Name:{}]'
+        fnew = 'Started Following @{} [ID:{} Name:{}]'
+
+    # walk old list
+    for uid in oldd.keys():
+        if uid not in newd:
+            #unfollowed
+            retval.append(fgone.format(oldd[uid]['username'], uid, oldd[uid]['name']))
+
+    # walk new list
+    for uid in newd.keys():
+        if uid not in oldd:
+            retval.append(fnew.format(newd[uid]['username'], uid, newd[uid]['name']))
+        # TODO could track name changes here
+
+    now = datetime.now()
+    tst = now.strftime("%Y-%m-%d %H:%M:%S")
+
+    if retval:
+        with open(mys.format(varn, 'log'), 'a') as output:
+           for msg in retval:
+               output.write('{} {}\n'.format(tst, msg))
+
+
+    return retval
+
+
+def main():
+
+    # Load .env file.
+    # This does not override existing env vars
+    load_dotenv()
+
+    # TB_STORAGE lets you move the pickle storage format
+    saveat = os.environ.get("TB_STORAGE", ".tb.{}.{}")
+
+    # env BEARER_TOKEN must be set.
+    # TODO ensure that os.environ.get tracebacks if unset
+    bearer_token = os.environ.get("BEARER_TOKEN")
+    headers = create_headers(bearer_token)
+
+    # TWITTER_UID probably should be set.  But we will use @jack if you don't set it.
+    uid = os.environ.get("TWITTER_UID", "12")
+
+    params = get_params()
+
+
+
+
+    for ltype in ('following', 'followers'):
+
+        url = create_url(uid, ltype)
+        json_response = connect_paginated(url, headers, params)
+        new_ud = response_to_dict(json_response)
+    #    print(json.dumps(json_response, indent=4, sort_keys=True))
+
+        old_ud = loadstate(saveat, ltype)
+
+    #   Do stuff
+        changelog = logcompare(saveat, ltype, old_ud, new_ud)
+
+
+        print('foo')
+
+        savestate(saveat, ltype, new_ud)
 
 if __name__ == "__main__":
     main()
