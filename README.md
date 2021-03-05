@@ -7,6 +7,11 @@ Simple python script which tracks your followers and who you are following.
 ### How use?
 
 1. check out and set up your venv using requirements.txt
+   ```bash
+   $ python3 -m venv venv
+   $ source venv/bin/activate
+   (venv) $ python3 -m pip install -r requirements.txt 
+   ```
 2. set up your .env file with your credentials and twitter user ID
 3. run this from time to time
 
